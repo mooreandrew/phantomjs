@@ -1,12 +1,9 @@
 /*
   This file is part of the PhantomJS project from Ofi Labs.
-
   Copyright (C) 2011 Ariya Hidayat <ariya.hidayat@gmail.com>
   Copyright (C) 2011 Ivan De Marino <ivan.de.marino@gmail.com>
-
   Redistribution and use in source and binary forms, with or without
   modification, are permitted provided that the following conditions are met:
-
     * Redistributions of source code must retain the above copyright
       notice, this list of conditions and the following disclaimer.
     * Redistributions in binary form must reproduce the above copyright
@@ -15,7 +12,6 @@
     * Neither the name of the <organization> nor the
       names of its contributors may be used to endorse or promote products
       derived from this software without specific prior written permission.
-
   THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
   AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
   IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
@@ -42,6 +38,7 @@
 #include "config.h"
 #include "cookiejar.h"
 #include "networkaccessmanager.h"
+#include "QtCore/qbuffer.h"
 
 static const char *toString(QNetworkAccessManager::Operation op)
 {
@@ -236,11 +233,31 @@ QNetworkReply *NetworkAccessManager::createRequest(Operation op, const QNetworkR
     data["headers"] = headers;
     data["time"] = QDateTime::currentDateTime();
 
+    QNetworkReply *reply;
+
+    if (outgoingData != 0) {
+
+      QByteArray post_data = outgoingData->readAll();
+      data["data"] = QString::fromAscii(post_data.toBase64().data());
+      outgoingData->seek(0);
+
+      QBuffer *outgoingData2 = new QBuffer;
+      outgoingData2->setData(post_data);
+      outgoingData2->open(QIODevice::ReadWrite);
+
+      // Pass duty to the superclass - Nothing special to do here (yet?)
+      reply = QNetworkAccessManager::createRequest(op, req, outgoingData2);
+
+    } else {
+
+      // Pass duty to the superclass - Nothing special to do here (yet?)
+      reply = QNetworkAccessManager::createRequest(op, req, outgoingData);
+
+    }
+
     JsNetworkRequest jsNetworkRequest(&req, this);
     emit resourceRequested(data, &jsNetworkRequest);
 
-    // Pass duty to the superclass - Nothing special to do here (yet?)
-    QNetworkReply *reply = QNetworkAccessManager::createRequest(op, req, outgoingData);
 
     // reparent jsNetworkRequest to make sure that it will be destroyed with QNetworkReply
     jsNetworkRequest.setParent(reply);
@@ -292,7 +309,7 @@ void NetworkAccessManager::handleStarted()
         return;
 
     m_started += reply;
-    
+
     QVariantList headers;
     foreach (QByteArray headerName, reply->rawHeaderList()) {
         QVariantMap header;
@@ -312,6 +329,8 @@ void NetworkAccessManager::handleStarted()
     data["redirectURL"] = reply->header(QNetworkRequest::LocationHeader);
     data["headers"] = headers;
     data["time"] = QDateTime::currentDateTime();
+
+    data["bodyBase64"] = QString::fromLatin1(reply->peek(reply->bytesAvailable()).toBase64().data());
 
     emit resourceReceived(data);
 }
@@ -362,6 +381,9 @@ void NetworkAccessManager::handleFinished(QNetworkReply *reply, const QVariant &
     data["redirectURL"] = reply->header(QNetworkRequest::LocationHeader);
     data["headers"] = headers;
     data["time"] = QDateTime::currentDateTime();
+
+    data["bodyBase64"] = QString::fromLatin1(reply->peek(reply->bytesAvailable()).toBase64().data());
+
 
     m_ids.remove(reply);
     m_started.remove(reply);
